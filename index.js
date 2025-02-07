@@ -21,7 +21,7 @@ const setWebhook = async () => {
 setWebhook();
 
 app.use(express.json());
-app.use(bot.webhookCallback(`/bot${process.env.TELEGRAM_BOT_TOKEN}`));
+app.use(bot.webhookCallback(`/bot${process.env.BOT_TOKEN}`));
 
 
 const userSessions = {};
