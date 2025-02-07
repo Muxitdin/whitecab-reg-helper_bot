@@ -28,8 +28,8 @@ const setWebhook = async () => {
         console.error("Error setting webhook:", error);
     }
 };
-// Вызов setWebhook можно оставить для первого раза или убрать после успешной установки
-setWebhook();
+// // Вызов setWebhook можно оставить для первого раза или убрать после успешной установки
+// setWebhook();
 
 app.use(express.json());
 app.use(bot.webhookCallback(`/bot${process.env.BOT_TOKEN}`));
