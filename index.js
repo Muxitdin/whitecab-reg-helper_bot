@@ -5,6 +5,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const adminGroupId = process.env.ADMIN_GROUP_ID; // ID группы с администраторами
 
 const userSessions = {};
+const photoSessions = {};
 const activeRegistrations = {}; // Хранит активные регистрации и админов
 
 bot.start((ctx) => {
@@ -84,7 +85,7 @@ async function sendToAdminGroup(ctx, data) {
 
     await ctx.telegram.sendMessage(adminGroupId, messageText);
 
-    await ctx.telegram.sendMediaGroup(adminGroupId, [
+    const photos = await ctx.telegram.sendMediaGroup(adminGroupId, [
         { type: "photo", media: data.passport_front },
         { type: "photo", media: data.passport_back },
         { type: "photo", media: data.license_front },
@@ -92,44 +93,69 @@ async function sendToAdminGroup(ctx, data) {
         { type: "photo", media: data.tech_passport_front },
         { type: "photo", media: data.tech_passport_back },
     ]);
+    photoSessions[ctx.from.id] = photos.map(item => item.message_id); // Сохраняем ID сообщений с фотографиями
+    console.log("🚀 ~ sendToAdminGroup ~ photoSessions:", photoSessions)
+
+    userSessions[ctx.from.id] = data;
 
     ctx.telegram.sendMessage(
         adminGroupId,
-        `Телефон: +${data.phone}\n\nСтатус: НЕ ВЫПОЛНЯЕТСЯ`,
+        `Телефон: ${data.phone[0] === "+" ? "": "+"}${data.phone}\n\nСтатус: НЕ ВЫПОЛНЯЕТСЯ 🔴`,
         Markup.inlineKeyboard([
-            [Markup.button.callback("Начать регистрацию", `start_${ctx.from.id}`)],
+            [Markup.button.callback("Начать регистрацию", `start_${ctx.from.id}_${photos.message_id}`)],
             // [Markup.button.callback("Выполнено", `complete_${ctx.from.id}`)],
         ])
     );
 }
 
-bot.action(/start_(\d+)/, (ctx) => {
+bot.action(/start_(\d+)/, async (ctx) => {
     const userId = ctx.match[1];
     const adminId = ctx.from.id; // ID администратора, который нажал кнопку
+    console.log("🚀 ~ bot.action ~ ctx.from:", ctx.from)
+    const session = userSessions[userId];
+    const photosIdArr = photoSessions[userId];
 
     if (activeRegistrations[userId]) {
         return ctx.answerCbQuery("Регистрация уже выполняется другим администратором.");
     }
 
     activeRegistrations[userId] = adminId;
-    ctx.editMessageText(ctx.update.callback_query.message.text.replace("НЕ ВЫПОЛНЯЕТСЯ", "ВЫПОЛНЯЕТСЯ"));
-    // ctx.editMessageReplyMarkup(Markup.inlineKeyboard([
-    //     [Markup.button.callback("Завершить регистрацию", `complete_${userId}`)]
-    // ]));
+
+    // Удаление сообщений с фотографиями из группы
+    try {
+        // await ctx.telegram.deleteMessage(adminGroupId, messageId); // Удаление сообщения по ID
+        for (const photoId of photosIdArr) {
+            await ctx.telegram.deleteMessage(adminGroupId, photoId);
+        }
+    } catch (error) {
+        console.error("Ошибка при удалении сообщения:", error);
+    }
+    // Пересылка медиа админу в личку
+    ctx.telegram.sendMediaGroup(adminId, [
+        { type: "photo", media: session.passport_front },
+        { type: "photo", media: session.passport_back },
+        { type: "photo", media: session.license_front },
+        { type: "photo", media: session.license_back },
+        { type: "photo", media: session.tech_passport_front },
+        { type: "photo", media: session.tech_passport_back },
+    ]);
+
+    ctx.editMessageText(ctx.update.callback_query.message.text.replace("НЕ ВЫПОЛНЯЕТСЯ 🔴", `ВЫПОЛНЯЕТСЯ 🟡\n\nКем: @${ctx.from.username || ctx.from.first_name}`));
 
     // Логируем клавиатуру для проверки
     const keyboard = {
         reply_markup: {
-            inline_keyboard: [
-                [{ text: "Завершить регистрацию", callback_data: `complete_${userId}` }]
-            ]
-        }
+            inline_keyboard: [[{ text: "Завершить регистрацию", callback_data: `complete_${userId}` }]],
+        },
     };
 
-    console.log(keyboard);
-
     // ctx.editMessageReplyMarkup(keyboard);
-    ctx.telegram.editMessageReplyMarkup(ctx.chat.id, ctx.update.callback_query.message.message_id, null, keyboard.reply_markup); // Исправленный метод для редактирования клавиатуры
+    ctx.telegram.editMessageReplyMarkup(
+        ctx.chat.id,
+        ctx.update.callback_query.message.message_id,
+        null,
+        keyboard.reply_markup
+    ); // Исправленный метод для редактирования клавиатуры
 
     ctx.answerCbQuery("Вы начали регистрацию."); // Отправьте сообщение администратору, который начал регистрацию
 });
@@ -143,14 +169,13 @@ bot.action(/complete_(\d+)/, async (ctx) => {
         return ctx.answerCbQuery("Вы не можете завершить регистрацию, начатую другим администратором.");
     }
 
-    ctx.editMessageText(ctx.update.callback_query.message.text.replace("ВЫПОЛНЯЕТСЯ", "ВЫПОЛНЕНО"));
+    ctx.editMessageText(ctx.update.callback_query.message.text.replace("ВЫПОЛНЯЕТСЯ 🟡", "ВЫПОЛНЕНО 🟢"));
     await ctx.telegram.sendMessage(
         userId,
         "Ваша регистрация завершена! Вот инструкции для начала работы: [ссылки и инструкции]."
     );
 
     delete activeRegistrations[userId]; // Удаление из активных после завершения
-    // ctx.editMessageReplyMarkup();
     ctx.answerCbQuery("Регистрация завершена.");
 });
 
