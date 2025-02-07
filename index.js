@@ -15,9 +15,20 @@ app.get('/', (req, res) => {
 // Set webhook URL
 const setWebhook = async () => {
     const webhookUrl = `${process.env.SERVER_URL}/bot${process.env.BOT_TOKEN}`;
-    await bot.telegram.setWebhook(webhookUrl);
-    console.log(`Webhook set to: ${webhookUrl}`);
+    try {
+        const webhookInfo = await bot.telegram.getWebhookInfo();
+        
+        if (webhookInfo.url !== webhookUrl) {
+            await bot.telegram.setWebhook(webhookUrl);
+            console.log(`Webhook set to: ${webhookUrl}`);
+        } else {
+            console.log(`Webhook already set to: ${webhookUrl}`);
+        }
+    } catch (error) {
+        console.error("Error setting webhook:", error);
+    }
 };
+// Вызов setWebhook можно оставить для первого раза или убрать после успешной установки
 setWebhook();
 
 app.use(express.json());
