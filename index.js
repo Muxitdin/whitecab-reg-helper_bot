@@ -14,7 +14,7 @@ app.get('/', (req, res) => {
 
 // Set webhook URL
 const setWebhook = async () => {
-    const webhookUrl = `${process.env.VERCEL_URL}/bot${process.env.BOT_TOKEN}`;
+    const webhookUrl = `${process.env.SERVER_URL}/bot${process.env.BOT_TOKEN}`;
     await bot.telegram.setWebhook(webhookUrl);
     console.log(`Webhook set to: ${webhookUrl}`);
 };
