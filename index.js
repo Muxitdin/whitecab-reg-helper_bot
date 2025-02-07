@@ -1,8 +1,28 @@
+const express = require('express');
 const { Telegraf, Markup } = require("telegraf");
 require("dotenv").config();
 
+const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const adminGroupId = process.env.ADMIN_GROUP_ID; // ID группы с администраторами
+
+
+// Health check route
+app.get('/', (req, res) => {
+    res.send('Bot is running!');
+});
+
+// Set webhook URL
+const setWebhook = async () => {
+    const webhookUrl = `${process.env.VERCEL_URL}/bot${process.env.BOT_TOKEN}`;
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log(`Webhook set to: ${webhookUrl}`);
+};
+setWebhook();
+
+app.use(express.json());
+app.use(bot.webhookCallback(`/bot${process.env.TELEGRAM_BOT_TOKEN}`));
+
 
 const userSessions = {};
 const photoSessions = {};
@@ -180,6 +200,12 @@ bot.action(/complete_(\d+)/, async (ctx) => {
 });
 
 bot.launch();
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`http://localhost:${PORT}`);
+});
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));

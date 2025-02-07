@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
