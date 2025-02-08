@@ -206,7 +206,7 @@ bot.action(/complete_(\d+)/, async (ctx) => {
     ctx.answerCbQuery("Регистрация завершена.");
 });
 
-bot.launch();
+// bot.launch();
 
 // Start the server
 const PORT = process.env.PORT || 3000;
