@@ -14,7 +14,7 @@ app.get('/', (req, res) => {
 
 // Set webhook URL
 const setWebhook = async () => {
-    const webhookUrl = `${process.env.SERVER_URL}/bot${process.env.BOT_TOKEN}`;
+    const webhookUrl = `${process.env.NODE_ENV === "production" ? process.env.SERVER_URL : process.env.NGROK_SERVER_URL }/bot${process.env.BOT_TOKEN}`;
     try {
         await bot.telegram.deleteWebhook().then(() => {
             console.log("Webhook deleted");
@@ -175,14 +175,13 @@ bot.action(/start_(\d+)/, async (ctx) => {
             inline_keyboard: [[{ text: "Завершить регистрацию", callback_data: `complete_${userId}` }]],
         },
     };
+    console.log("🚀 ~ bot.action ~ keyboard:", keyboard)
 
     // ctx.editMessageReplyMarkup(keyboard);
-    ctx.telegram.editMessageReplyMarkup(
-        ctx.chat.id,
-        ctx.update.callback_query.message.message_id,
-        null,
+    const res = await ctx.editMessageReplyMarkup(
         keyboard.reply_markup
     ); // Исправленный метод для редактирования клавиатуры
+    console.log("🚀 ~ bot.action ~ res:", res)
 
     ctx.answerCbQuery("Вы начали регистрацию."); // Отправьте сообщение администратору, который начал регистрацию
 });
