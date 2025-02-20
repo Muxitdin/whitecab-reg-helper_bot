@@ -7,6 +7,11 @@ const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const adminGroupId = process.env.ADMIN_GROUP_ID;
 
+// Health check route
+app.get("/", (req, res) => {
+    res.send("Bot is running!");
+});
+
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI).then(() => {
     console.log("MongoDB connected");
