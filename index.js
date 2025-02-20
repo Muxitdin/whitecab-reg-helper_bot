@@ -397,10 +397,8 @@ bot.on("text", async (ctx) => {
     
     // Update current field data 
     
-    if (!session?.data[session.step]) {
+    if (!session.data[session.step]) {
         session.data[session.step] = {};
-    } else {
-        ctx.reply("Ошибка. Начните заново. /start");
     }
     
     session.data[session.step][session.currentField] = ctx.message.text;
