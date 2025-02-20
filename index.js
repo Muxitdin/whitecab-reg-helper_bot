@@ -1,24 +1,25 @@
-const express = require('express');
+const express = require("express");
 const { Telegraf, Markup } = require("telegraf");
 require("dotenv").config();
 
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const adminGroupId = process.env.ADMIN_GROUP_ID; // ID группы с администраторами
-
+const adminGroupId = process.env.ADMIN_GROUP_ID;
 
 // Health check route
-app.get('/', (req, res) => {
-    res.send('Bot is running!');
+app.get("/", (req, res) => {
+    res.send("Bot is running!");
 });
 
 // Set webhook URL
 const setWebhook = async () => {
-    const webhookUrl = `${process.env.NODE_ENV === "production" ? process.env.SERVER_URL : process.env.NGROK_SERVER_URL }/bot${process.env.BOT_TOKEN}`;
+    const webhookUrl = `${
+        process.env.NODE_ENV === "production" ? process.env.SERVER_URL : process.env.NGROK_SERVER_URL
+    }/bot${process.env.BOT_TOKEN}`;
     try {
         await bot.telegram.deleteWebhook().then(() => {
             console.log("Webhook deleted");
-        })
+        });
         await bot.telegram.setWebhook(webhookUrl);
         console.log(`Webhook set to: ${webhookUrl}`);
     } catch (error) {
@@ -30,117 +31,110 @@ setWebhook();
 app.use(express.json());
 app.use(bot.webhookCallback(`/bot${process.env.BOT_TOKEN}`));
 
-
 const userSessions = {};
-const photoSessions = {};
-const activeRegistrations = {}; // Хранит активные регистрации и админов
+const activeRegistrations = {};
+
+const REGISTRATION_STEPS = {
+    PASSPORT: {
+        message:
+            "Введите данные паспорта в формате:\nФИО: Marcus Aurelius\nСерийный номер: XXXXXX\nДата рождения: DD.MM.YYYY",
+        next: "LICENSE",
+    },
+    LICENSE: {
+        message:
+            "Введите данные водительского удостоверения в формате:\nСерия: XXXX\nНомер: XXXXXX\nДата выдачи: DD.MM.YYYY\nКатегории: ...",
+        next: "TECH_PASSPORT",
+    },
+    TECH_PASSPORT: {
+        message:
+            "Введите данные технического паспорта в формате:\nСерия: XXX\nНомер: XXXXXX\nГод выпуска: YYYY\nМарка и модель: ...",
+        next: "PHONE",
+    },
+    PHONE: {
+        message: "Пожалуйста, отправьте ваш рабочий номер телефона",
+        next: null,
+    },
+};
 
 bot.start((ctx) => {
-    ctx.reply("Добро пожаловать! Для регистрации отправьте фото паспорта (спереди).");
-    userSessions[ctx.from.id] = { step: "passport_front", data: {} };
+    userSessions[ctx.from.id] = {
+        step: "PASSPORT",
+        data: {},
+    };
+    ctx.reply(REGISTRATION_STEPS.PASSPORT.message);
 });
 
-bot.on("photo", (ctx) => {
+bot.on("text", (ctx) => {
     const session = userSessions[ctx.from.id];
 
     if (!session) {
         return ctx.reply("Пожалуйста, начните регистрацию с команды /start.");
     }
 
-    const fileId = ctx.message.photo.pop().file_id; // Получаем ID файла фотографии
+    // Handle phone number input without contact sharing
+    if (session.step === "PHONE") {
+        return ctx.reply(
+            "Пожалуйста, используйте кнопку ниже, чтобы отправить ваш номер телефона 👇",
+            Markup.keyboard([Markup.button.contactRequest("📞 Отправить контакт")])
+                .oneTime()
+                .resize()
+        );
+    }
 
-    switch (session.step) {
-        case "passport_front":
-            session.data.passport_front = fileId;
-            session.step = "passport_back";
-            ctx.reply("Отправьте фото паспорта (сзади).");
-            break;
-        case "passport_back":
-            session.data.passport_back = fileId;
-            session.step = "license_front";
-            ctx.reply("Отправьте фото водительского удостоверения (спереди).");
-            break;
-        case "license_front":
-            session.data.license_front = fileId;
-            session.step = "license_back";
-            ctx.reply("Отправьте фото водительского удостоверения (сзади).");
-            break;
-        case "license_back":
-            session.data.license_back = fileId;
-            session.step = "tech_passport_front";
-            ctx.reply("Отправьте фото тех. паспорта (спереди).");
-            break;
-        case "tech_passport_front":
-            session.data.tech_passport_front = fileId;
-            session.step = "tech_passport_back";
-            ctx.reply("Отправьте фото тех. паспорта (сзади).");
-            break;
-        case "tech_passport_back":
-            session.data.tech_passport_back = fileId;
-            session.step = "phone";
-            ctx.reply(
-                "Пожалуйста, отправьте ваш рабочий номер телефона.",
-                Markup.keyboard([Markup.button.contactRequest("Отправить номер телефона")])
-                    .oneTime()
-                    .resize()
-            );
-            break;
-        default:
-            ctx.reply("Ожидается номер телефона.");
+    // Handle document data input
+    session.data[session.step.toLowerCase()] = ctx.message.text;
+    const nextStep = REGISTRATION_STEPS[session.step].next;
+
+    if (nextStep) {
+        session.step = nextStep;
+        ctx.reply(
+            REGISTRATION_STEPS[nextStep].message,
+            nextStep === "PHONE"
+                ? Markup.keyboard([Markup.button.contactRequest("📞 Отправить контакт")])
+                      .oneTime()
+                      .resize()
+                : undefined // Для других шагов клавиатуру не отправляем
+        );
     }
 });
 
-bot.on("contact", (ctx) => {
+bot.on("contact", async (ctx) => {
     const session = userSessions[ctx.from.id];
 
-    if (!session || session.step !== "phone") {
-        return ctx.reply("Пожалуйста, отправьте номер телефона после загрузки всех документов.");
+    if (!session || session.step !== "PHONE") {
+        return ctx.reply("Пожалуйста, следуйте инструкциям и отправьте данные корректно.");
     }
 
+    // 🔽 Сохраняем номер телефона из контакта
     session.data.phone = ctx.message.contact.phone_number;
+
+    // 🔽 Отправляем данные в группу администраторов
     sendToAdminGroup(ctx, session.data);
-    delete userSessions[ctx.from.id];
-    ctx.reply("Ваши данные отправлены на проверку. Ожидайте ответа.", {
-        reply_markup: {
-            remove_keyboard: true,
-        },
-    });
+    delete userSessions[ctx.from.id]; // Удаляем сессию пользователя
+
+    // 🔽 Уведомляем пользователя и убираем клавиатуру
+    return ctx.reply("Ваши данные отправлены на проверку. Ожидайте ответа.", Markup.removeKeyboard());
 });
 
 async function sendToAdminGroup(ctx, data) {
-    const messageText = `Новая заявка на регистрацию:`;
+    const messageText = `
+Новая заявка на регистрацию:
 
-    await ctx.telegram.sendMessage(adminGroupId, messageText);
+Статус: НЕ ВЫПОЛНЯЕТСЯ 🔴`;
 
-    const photos = await ctx.telegram.sendMediaGroup(adminGroupId, [
-        { type: "photo", media: data.passport_front },
-        { type: "photo", media: data.passport_back },
-        { type: "photo", media: data.license_front },
-        { type: "photo", media: data.license_back },
-        { type: "photo", media: data.tech_passport_front },
-        { type: "photo", media: data.tech_passport_back },
-    ]);
-    photoSessions[ctx.from.id] = photos.map(item => item.message_id); // Сохраняем ID сообщений с фотографиями
-    console.log("🚀 ~ sendToAdminGroup ~ photoSessions:", photoSessions)
+    const message = await ctx.telegram.sendMessage(
+        adminGroupId,
+        messageText,
+        Markup.inlineKeyboard([[Markup.button.callback("Начать регистрацию", `start_${ctx.from.id}`)]])
+    );
 
     userSessions[ctx.from.id] = data;
-
-    ctx.telegram.sendMessage(
-        adminGroupId,
-        `Телефон: ${data.phone[0] === "+" ? "": "+"}${data.phone}\n\nСтатус: НЕ ВЫПОЛНЯЕТСЯ 🔴`,
-        Markup.inlineKeyboard([
-            [Markup.button.callback("Начать регистрацию", `start_${ctx.from.id}_${photos.message_id}`)],
-            // [Markup.button.callback("Выполнено", `complete_${ctx.from.id}`)],
-        ])
-    );
 }
 
 bot.action(/start_(\d+)/, async (ctx) => {
     const userId = ctx.match[1];
-    const adminId = ctx.from.id; // ID администратора, который нажал кнопку
-    console.log("🚀 ~ bot.action ~ ctx.from:", ctx.from)
-    const session = userSessions[userId];
-    const photosIdArr = photoSessions[userId];
+    const adminId = ctx.from.id;
+    const data = userSessions[userId];
 
     if (activeRegistrations[userId]) {
         return ctx.answerCbQuery("Регистрация уже выполняется другим администратором.");
@@ -148,66 +142,52 @@ bot.action(/start_(\d+)/, async (ctx) => {
 
     activeRegistrations[userId] = adminId;
 
-    // Удаление сообщений с фотографиями из группы
-    try {
-        // await ctx.telegram.deleteMessage(adminGroupId, messageId); // Удаление сообщения по ID
-        for (const photoId of photosIdArr) {
-            await ctx.telegram.deleteMessage(adminGroupId, photoId);
-        }
-    } catch (error) {
-        console.error("Ошибка при удалении сообщения:", error);
-    }
-    // Пересылка медиа админу в личку
-    ctx.telegram.sendMediaGroup(adminId, [
-        { type: "photo", media: session.passport_front },
-        { type: "photo", media: session.passport_back },
-        { type: "photo", media: session.license_front },
-        { type: "photo", media: session.license_back },
-        { type: "photo", media: session.tech_passport_front },
-        { type: "photo", media: session.tech_passport_back },
-    ]);
+    // Forward data to admin's private chat
+    await ctx.telegram.sendMessage(
+        adminId,
+        `Данные заявителя:
+🔹 Паспорт:
+${data.passport}
 
-    ctx.editMessageText(ctx.update.callback_query.message.text.replace("НЕ ВЫПОЛНЯЕТСЯ 🔴", `ВЫПОЛНЯЕТСЯ 🟡\n\nКем: @${ctx.from.username || ctx.from.first_name}`));
+🔹 Водительское удостоверение:
+${data.license}
 
-    // Логируем клавиатуру для проверки
-    const keyboard = {
-        reply_markup: {
-            inline_keyboard: [[{ text: "Завершить регистрацию", callback_data: `complete_${userId}` }]],
-        },
-    };
-    console.log("🚀 ~ bot.action ~ keyboard:", keyboard)
+🔹 Технический паспорт:
+${data.tech_passport}
 
-    // ctx.editMessageReplyMarkup(keyboard);
-    const res = await ctx.editMessageReplyMarkup(
-        keyboard.reply_markup
-    ); // Исправленный метод для редактирования клавиатуры
-    console.log("🚀 ~ bot.action ~ res:", res)
+🔹 Телефон: ${data.phone}`
+    );
 
-    ctx.answerCbQuery("Вы начали регистрацию."); // Отправьте сообщение администратору, который начал регистрацию
+    ctx.editMessageText(
+        ctx.update.callback_query.message.text.replace(
+            "НЕ ВЫПОЛНЯЕТСЯ 🔴",
+            `ВЫПОЛНЯЕТСЯ 🟡\n\nКем: @${ctx.from.username || ctx.from.first_name}`
+        ),
+        Markup.inlineKeyboard([[Markup.button.callback("Завершить регистрацию", `complete_${userId}`)]])
+    );
+
+    ctx.answerCbQuery("Вы начали регистрацию.");
 });
 
 bot.action(/complete_(\d+)/, async (ctx) => {
     const userId = ctx.match[1];
     const adminId = ctx.from.id;
 
-    // Проверка, что регистрацию завершает тот же админ
     if (activeRegistrations[userId] !== adminId) {
         return ctx.answerCbQuery("Вы не можете завершить регистрацию, начатую другим администратором.");
     }
 
     ctx.editMessageText(ctx.update.callback_query.message.text.replace("ВЫПОЛНЯЕТСЯ 🟡", "ВЫПОЛНЕНО 🟢"));
+
     await ctx.telegram.sendMessage(
         userId,
         "Ваша регистрация завершена! Вот инструкции для начала работы: [ссылки и инструкции]."
     );
 
-    delete activeRegistrations[userId]; // Удаление из активных после завершения
+    delete activeRegistrations[userId];
     ctx.answerCbQuery("Регистрация завершена.");
 });
 
-// bot.launch();
-
-// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`http://localhost:${PORT}`);
